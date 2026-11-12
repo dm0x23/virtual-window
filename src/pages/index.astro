@@ -1,0 +1,35 @@
+---
+import WindowScene from '../components/WindowScene';
+import TaskList from '../components/TaskList';
+import PomodoroTimer from '../components/PomodoroTimer';
+import SpotifyPlayer from '../components/SpotifyPlayer';
+import SettingsDrawer from '../components/SettingsDrawer';
+import ZenModeToggle from '../components/ZenModeToggle';
+import '../styles/global.css';
+---
+
+<!doctype html>
+<html lang="en" class="h-full w-full overflow-hidden">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="description" content="Virtual Window - A cozy, lo-fi ambient productivity window" />
+    <meta name="application-name" content="Virtual Window" />
+    <meta name="apple-mobile-web-app-title" content="Virtual Window" />
+    <title>Virtual Window</title>
+  </head>
+  <body class="h-screen w-screen overflow-hidden select-none bg-slate-950 font-sans text-white">
+    <main class="relative h-screen w-screen overflow-hidden">
+      <!-- Full-Bleed Dynamic 2D Illustrated Parallax Window -->
+      <WindowScene client:load />
+
+      <!-- Floating Productivity Islands (Glassmorphism UI) -->
+      <TaskList client:load />
+      <PomodoroTimer client:load />
+      <SpotifyPlayer client:load />
+      <SettingsDrawer client:load />
+      <ZenModeToggle client:load />
+    </main>
+  </body>
+</html>
