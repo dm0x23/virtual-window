@@ -2,34 +2,31 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import { useStore } from '@nanostores/preact';
 import { $layoutResetTrigger } from '../stores/appStore';
 
-interface Position {
+export interface Position {
   x: number;
   y: number;
 }
 
 interface DraggableOptions {
   storageKey?: string;
-  defaultPosition: () => Position;
+  defaultPosition?: () => Position;
 }
 
-export function useDraggable({ storageKey, defaultPosition }: DraggableOptions) {
-  // Always initialize directly to default standard position so launch matches reset position 100%
-  const [position, setPosition] = useState<Position>(defaultPosition);
+export function useDraggable({ storageKey }: DraggableOptions = {}) {
+  // null means "use native CSS default corner positioning" (top-left, top-center, bottom-right)
+  const [position, setPosition] = useState<Position | null>(null);
 
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
   const elementRef = useRef<HTMLDivElement | null>(null);
   const resetCount = useStore($layoutResetTrigger);
 
-  // On client initial mount: purge any legacy coordinates from prior sessions and ensure live viewport calibration
+  // Clear legacy stored keys so widgets always start in their clean default corners
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (storageKey) {
-        try {
-          localStorage.removeItem(storageKey);
-        } catch {}
-      }
-      setPosition(defaultPosition());
+    if (typeof window !== 'undefined' && storageKey) {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {}
     }
   }, []);
 
@@ -41,14 +38,15 @@ export function useDraggable({ storageKey, defaultPosition }: DraggableOptions) 
           localStorage.removeItem(storageKey);
         } catch {}
       }
-      setPosition(defaultPosition());
+      setPosition(null);
     }
   }, [resetCount]);
 
-  // Recalculate on window resize to ensure element stays within viewport bounds
+  // Recalculate on window resize if custom dragged position is active
   useEffect(() => {
     const handleResize = () => {
       setPosition((prev) => {
+        if (!prev) return null;
         const maxX = Math.max(0, window.innerWidth - 100);
         const maxY = Math.max(0, window.innerHeight - 80);
         if (prev.x > maxX || prev.y > maxY) {
@@ -88,12 +86,20 @@ export function useDraggable({ storageKey, defaultPosition }: DraggableOptions) 
     if (e.button !== 0) return;
 
     e.preventDefault();
+
+    // Determine current position from element bounding rect so switching from CSS to translate3d has ZERO jump
+    const rect = elementRef.current?.getBoundingClientRect();
+    const currentX = rect ? rect.left : (position ? position.x : 0);
+    const currentY = rect ? rect.top : (position ? position.y : 0);
+
+    setPosition({ x: currentX, y: currentY });
     setIsDragging(true);
+
     dragStartRef.current = {
       mouseX: e.clientX,
       mouseY: e.clientY,
-      startX: position.x,
-      startY: position.y,
+      startX: currentX,
+      startY: currentY,
     };
   };
 
@@ -132,7 +138,7 @@ export function useDraggable({ storageKey, defaultPosition }: DraggableOptions) 
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, position]);
+  }, [isDragging]);
 
   return {
     position,

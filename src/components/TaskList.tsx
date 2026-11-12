@@ -20,7 +20,6 @@ export default function TaskList() {
 
   const { position, handleMouseDown, isDragging, elementRef } = useDraggable({
     storageKey: 'vw_drag_tasks',
-    defaultPosition: () => ({ x: 24, y: 80 }),
   });
 
   const completedCount = tasks.filter((t) => t.completed).length;
@@ -43,13 +42,22 @@ export default function TaskList() {
     <div
       ref={elementRef}
       onMouseDown={handleMouseDown}
-      style={{
-        transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.2, 0, 0, 1)',
-      }}
+      style={
+        position
+          ? {
+              transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.2, 0, 0, 1)',
+            }
+          : {
+              position: 'fixed',
+              top: '24px',
+              left: '24px',
+              transition: 'all 0.3s cubic-bezier(0.2, 0, 0, 1)',
+            }
+      }
       className={`z-40 w-80 md:w-88 rounded-[20px] bg-[#1C1D22] border border-white/10 shadow-2xl transition-shadow text-slate-100 flex flex-col max-h-[calc(100vh-180px)] select-none ${
         isDragging ? 'cursor-grabbing shadow-[0_20px_40px_rgba(0,0,0,0.6)]' : 'cursor-grab'
       } ${isCollapsed ? 'h-auto' : ''}`}

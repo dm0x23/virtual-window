@@ -18,10 +18,6 @@ export default function PomodoroTimer() {
 
   const { position, handleMouseDown, isDragging, elementRef } = useDraggable({
     storageKey: 'vw_drag_pomodoro',
-    defaultPosition: () => ({
-      x: typeof window !== 'undefined' ? Math.max(20, Math.floor(window.innerWidth / 2 - 130)) : 400,
-      y: 24,
-    }),
   });
 
   // Sync timeLeft when config changes and timer is not running
@@ -88,13 +84,23 @@ export default function PomodoroTimer() {
     <div
       ref={elementRef}
       onMouseDown={handleMouseDown}
-      style={{
-        transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.2, 0, 0, 1)',
-      }}
+      style={
+        position
+          ? {
+              transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.2, 0, 0, 1)',
+            }
+          : {
+              position: 'fixed',
+              top: '24px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              transition: 'all 0.3s cubic-bezier(0.2, 0, 0, 1)',
+            }
+      }
       className={`z-40 flex items-center gap-3 px-5 py-2.5 rounded-full bg-[#1C1D22] border border-white/10 shadow-2xl text-slate-100 transition-shadow select-none ${
         isDragging ? 'cursor-grabbing shadow-[0_20px_40px_rgba(0,0,0,0.6)]' : 'cursor-grab'
       }`}
@@ -146,7 +152,10 @@ export default function PomodoroTimer() {
           aria-label="Reset timer"
         >
           <RotateCcw size={15} />
-        </button>
+        </button>Working
+        
+        
+        
       </div>
     </div>
   );
