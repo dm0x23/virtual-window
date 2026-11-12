@@ -235,6 +235,20 @@ export function initStore() {
   $youtubeEmbedUrl.subscribe((yt) => {
     try { localStorage.setItem('vw_youtube', JSON.stringify(yt)); } catch {}
   });
+
+  // Global Fullscreen change & F11 key listeners
+  const onFsChange = () => {
+    $isFullscreen.set(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
+  };
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+
+  window.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'F11') {
+      e.preventDefault();
+      toggleFullscreen();
+    }
+  });
 }
 
 // Action helpers
@@ -351,6 +365,27 @@ export function setMusicTab(tab: MusicTabType) {
 
 export function setCustomYoutubeEmbed(embedUrl: string) {
   $youtubeEmbedUrl.set(embedUrl);
+}
+
+// Fullscreen state & toggle action
+export const $isFullscreen = atom<boolean>(false);
+
+export function toggleFullscreen() {
+  if (typeof document === 'undefined') return;
+
+  if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else if ((document.documentElement as any).webkitRequestFullscreen) {
+      (document.documentElement as any).webkitRequestFullscreen();
+    }
+  } else {
+    if (document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    } else if ((document as any).webkitExitFullscreen) {
+      (document as any).webkitExitFullscreen();
+    }
+  }
 }
 
 // Widget layout reset trigger

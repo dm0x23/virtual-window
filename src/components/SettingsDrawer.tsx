@@ -9,6 +9,7 @@ import {
   $soundVolumes,
   $isSettingsOpen,
   $zenMode,
+  $isFullscreen,
   setWeather,
   setScenery,
   toggleSceneProp,
@@ -16,6 +17,7 @@ import {
   setChannelVolume,
   setPomodoroConfig,
   resetWidgetPositions,
+  toggleFullscreen,
   type WeatherType,
   type SceneryType,
   type SoundChannels,
@@ -39,6 +41,8 @@ import {
   Building2,
   Trees,
   RotateCcw,
+  Maximize2,
+  Minimize2,
 } from 'lucide-preact';
 
 export default function SettingsDrawer() {
@@ -50,6 +54,7 @@ export default function SettingsDrawer() {
   const soundVolumes = useStore($soundVolumes);
   const isOpen = useStore($isSettingsOpen);
   const zenMode = useStore($zenMode);
+  const isFullscreen = useStore($isFullscreen);
 
   const [focusInput, setFocusInput] = useState(pomodoroConfig.focusMinutes);
   const [breakInput, setBreakInput] = useState(pomodoroConfig.breakMinutes);
@@ -341,19 +346,34 @@ export default function SettingsDrawer() {
                 </div>
               </div>
 
-              {/* 5. WIDGET LAYOUT (Reset cards to standard corner positions) */}
+              {/* 5. WIDGET LAYOUT & DISPLAY */}
               <div className="space-y-3 pt-2 border-t border-white/10">
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                  Layout
+                  Layout & Display
                 </span>
-                <button
-                  type="button"
-                  onClick={resetWidgetPositions}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-[14px] bg-[#25272E] hover:bg-[#323640] border border-white/10 text-slate-200 hover:text-white transition-all text-xs font-medium active:scale-98 cursor-pointer shadow-xs"
-                >
-                  <RotateCcw size={14} className="text-amber-400" />
-                  <span>Reset Widget Positions</span>
-                </button>
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleFullscreen}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-[14px] bg-[#25272E] hover:bg-[#323640] border border-white/10 text-slate-200 hover:text-white transition-all text-xs font-medium active:scale-98 cursor-pointer shadow-xs"
+                  >
+                    {isFullscreen ? (
+                      <Minimize2 size={14} className="text-sky-400" />
+                    ) : (
+                      <Maximize2 size={14} className="text-sky-400" />
+                    )}
+                    <span>{isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen (F11)'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={resetWidgetPositions}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-[14px] bg-[#25272E] hover:bg-[#323640] border border-white/10 text-slate-200 hover:text-white transition-all text-xs font-medium active:scale-98 cursor-pointer shadow-xs"
+                  >
+                    <RotateCcw size={14} className="text-amber-400" />
+                    <span>Reset Widget Positions</span>
+                  </button>
+                </div>
                 <p className="text-[11px] text-slate-400 leading-tight">
                   Snaps Tasks, Pomodoro, and Music cards back to their standard screen corners.
                 </p>
