@@ -4,8 +4,15 @@ import {
   $pomodoroConfig,
   $zenMode,
 } from '../stores/appStore';
+import {
+  $studyRoom,
+  $incomingTimerSync,
+  broadcastTimerSync,
+  setTimerSnapshot,
+  toggleSynced,
+} from '../stores/studyRoomStore';
 import { audioService } from '../services/audioService';
-import { Play, Pause, RotateCcw, Bell, BellOff } from 'lucide-preact';
+import { Play, Pause, RotateCcw, Bell, BellOff, Link2, Unlink2 } from 'lucide-preact';
 import { useDraggable } from '../hooks/useDraggable';
 
 // Background-safe inline Web Worker script for drift-free background countdowns
@@ -29,6 +36,8 @@ self.onmessage = function(e) {
 export default function PomodoroTimer() {
   const config = useStore($pomodoroConfig);
   const zenMode = useStore($zenMode);
+  const studyRoom = useStore($studyRoom);
+  const incomingSync = useStore($incomingTimerSync);
 
   const [mode, setMode] = useState<'focus' | 'break'>('focus');
   const [timeLeft, setTimeLeft] = useState<number>(config.focusMinutes * 60);
@@ -55,6 +64,48 @@ export default function PomodoroTimer() {
   const { position, handleMouseDown, isDragging, elementRef } = useDraggable({
     storageKey: 'vw_drag_pomodoro',
   });
+
+  // Keep study room snapshot updated whenever timer state changes
+  useEffect(() => {
+    setTimerSnapshot({
+      isRunning,
+      mode,
+      endTime: endTimeRef.current,
+      remainingSeconds: timeLeft,
+    });
+  }, [isRunning, mode, timeLeft]);
+
+  // Handle incoming timer sync broadcasts (active when Synced)
+  useEffect(() => {
+    if (!incomingSync) return;
+    if (!studyRoom.isConnected || !studyRoom.isSynced) return;
+
+    if (incomingSync.isRunning && incomingSync.endTime) {
+      const remaining = Math.max(0, Math.ceil((incomingSync.endTime - Date.now()) / 1000));
+      if (remaining > 0) {
+        setMode(incomingSync.mode);
+        modeRef.current = incomingSync.mode;
+        setTimeLeft(remaining);
+        endTimeRef.current = incomingSync.endTime;
+        setIsRunning(true);
+      } else {
+        setMode(incomingSync.mode);
+        modeRef.current = incomingSync.mode;
+        setTimeLeft(0);
+        endTimeRef.current = null;
+        setIsRunning(false);
+      }
+    } else {
+      setMode(incomingSync.mode);
+      modeRef.current = incomingSync.mode;
+      setTimeLeft(incomingSync.remainingSeconds);
+      endTimeRef.current = null;
+      setIsRunning(false);
+      if (workerRef.current) {
+        workerRef.current.postMessage('stop');
+      }
+    }
+  }, [incomingSync, studyRoom.isConnected, studyRoom.isSynced]);
 
   // Sync timeLeft when config changes and timer is paused/stopped
   useEffect(() => {
@@ -147,6 +198,13 @@ export default function PomodoroTimer() {
       }
       const nextDuration = (nextMode === 'focus' ? configRef.current.focusMinutes : configRef.current.breakMinutes) * 60;
       setTimeLeft(nextDuration);
+
+      broadcastTimerSync({
+        isRunning: false,
+        mode: nextMode,
+        endTime: null,
+        remainingSeconds: nextDuration,
+      });
     } else {
       const remainingSec = Math.max(0, Math.ceil(diffMs / 1000));
       setTimeLeft(remainingSec);
@@ -219,13 +277,22 @@ export default function PomodoroTimer() {
       const currentSeconds = timeLeft <= 0
         ? (mode === 'focus' ? config.focusMinutes : config.breakMinutes) * 60
         : timeLeft;
-      endTimeRef.current = Date.now() + currentSeconds * 1000;
+      const targetEnd = Date.now() + currentSeconds * 1000;
+      endTimeRef.current = targetEnd;
       setTimeLeft(currentSeconds);
       setIsRunning(true);
+
+      broadcastTimerSync({
+        isRunning: true,
+        mode,
+        endTime: targetEnd,
+        remainingSeconds: currentSeconds,
+      });
     } else {
       // Pause: capture exact remaining seconds from target timestamp
+      let remaining = timeLeft;
       if (endTimeRef.current) {
-        const remaining = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
+        remaining = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
         setTimeLeft(remaining);
       }
       endTimeRef.current = null;
@@ -233,19 +300,35 @@ export default function PomodoroTimer() {
       if (workerRef.current) {
         workerRef.current.postMessage('stop');
       }
+
+      broadcastTimerSync({
+        isRunning: false,
+        mode,
+        endTime: null,
+        remainingSeconds: remaining,
+      });
     }
   };
 
   const handleReset = () => {
+    const duration = (mode === 'focus' ? config.focusMinutes : config.breakMinutes) * 60;
     setIsRunning(false);
     endTimeRef.current = null;
     if (workerRef.current) {
       workerRef.current.postMessage('stop');
     }
-    setTimeLeft((mode === 'focus' ? config.focusMinutes : config.breakMinutes) * 60);
+    setTimeLeft(duration);
+
+    broadcastTimerSync({
+      isRunning: false,
+      mode,
+      endTime: null,
+      remainingSeconds: duration,
+    });
   };
 
   const handleSwitchMode = (newMode: 'focus' | 'break') => {
+    const duration = (newMode === 'focus' ? config.focusMinutes : config.breakMinutes) * 60;
     setIsRunning(false);
     endTimeRef.current = null;
     if (workerRef.current) {
@@ -253,7 +336,14 @@ export default function PomodoroTimer() {
     }
     setMode(newMode);
     modeRef.current = newMode;
-    setTimeLeft((newMode === 'focus' ? config.focusMinutes : config.breakMinutes) * 60);
+    setTimeLeft(duration);
+
+    broadcastTimerSync({
+      isRunning: false,
+      mode: newMode,
+      endTime: null,
+      remainingSeconds: duration,
+    });
   };
 
   const handleBellClick = async () => {
@@ -326,6 +416,23 @@ export default function PomodoroTimer() {
           Break
         </button>
       </div>
+
+      {/* Synced vs Solo Room Mode Button (When Connected to a Room) */}
+      {studyRoom.isConnected && (
+        <button
+          onClick={toggleSynced}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
+            studyRoom.isSynced
+              ? 'bg-[#8EA2FF]/20 text-[#8EA2FF] border-[#8EA2FF]/40 shadow-xs'
+              : 'bg-white/5 text-slate-400 border-white/10 hover:text-slate-200'
+          }`}
+          title={studyRoom.isSynced ? 'Synced with room timer (click for solo)' : 'Solo timer (click to sync with room)'}
+          aria-label={studyRoom.isSynced ? 'Synced timer' : 'Solo timer'}
+        >
+          {studyRoom.isSynced ? <Link2 size={12} /> : <Unlink2 size={12} />}
+          <span>{studyRoom.isSynced ? 'Synced' : 'Solo'}</span>
+        </button>
+      )}
 
       {/* STRICT UI RULE: Render ONLY the digital countdown clock */}
       <div className="font-mono text-2xl font-bold tracking-wider text-white px-1 select-none">

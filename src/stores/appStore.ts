@@ -476,6 +476,7 @@ export function resetWidgetPositions() {
       localStorage.removeItem('vw_drag_tasks');
       localStorage.removeItem('vw_drag_pomodoro');
       localStorage.removeItem('vw_drag_music');
+      localStorage.removeItem('vw_drag_study_room');
     } catch {}
   }
   $layoutResetTrigger.set(Date.now());
