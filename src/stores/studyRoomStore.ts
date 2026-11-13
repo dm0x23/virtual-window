@@ -2,7 +2,7 @@ import { atom } from 'nanostores';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'online' | 'reconnecting' | 'error';
 
 export interface StudyBuddy {
   id: string;
@@ -32,6 +32,7 @@ export interface TimerSyncPayload {
 export interface StudyRoomState {
   connectionStatus: ConnectionStatus;
   isConnected: boolean;
+  isJoined?: boolean;
   isConnecting: boolean;
   isFormOpen: boolean;
   isCollapsed: boolean;
@@ -53,7 +54,7 @@ const AVATAR_COLORS = [
   '#2DD4BF', // Teal
 ];
 
-function getAvatarColor(name: string): string {
+export function getAvatarColor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -123,6 +124,7 @@ function getInitialSynced(): boolean {
 export const $studyRoom = atom<StudyRoomState>({
   connectionStatus: 'disconnected',
   isConnected: false,
+  isJoined: false,
   isConnecting: false,
   isFormOpen: false,
   isCollapsed: false,
@@ -137,6 +139,11 @@ export const $studyRoom = atom<StudyRoomState>({
 export const $incomingTimerSync = atom<TimerSyncPayload | null>(null);
 
 let activeChannel: RealtimeChannel | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function getActiveChannel(): RealtimeChannel | null {
+  return activeChannel;
+}
 let lastKnownTimerState = {
   isRunning: false,
   mode: 'focus' as 'focus' | 'break',
@@ -151,6 +158,14 @@ export function setTimerSnapshot(state: {
   remainingSeconds: number;
 }) {
   lastKnownTimerState = { ...state };
+}
+
+export function getTimerSnapshot() {
+  return lastKnownTimerState;
+}
+
+export function setActiveChannel(channel: RealtimeChannel | null) {
+  activeChannel = channel;
 }
 
 export function setFormOpen(open: boolean) {
@@ -190,6 +205,72 @@ export function setUsername(name: string) {
   }
 }
 
+// Instant catch-up check: inspect all online members where member.isSynced === true
+export function checkAndApplyRoomTimerCatchUp(membersList?: StudyBuddy[]) {
+  const state = $studyRoom.get();
+  if (!state.isConnected || !state.isSynced) return;
+
+  const members = membersList || state.members;
+  if (!members || members.length === 0) return;
+
+  // Inspect all online members where member.isSynced === true
+  const syncedMembers = members.filter((m) => !m.isSelf && m.isSynced);
+  if (syncedMembers.length === 0) return;
+
+  const now = Date.now();
+  // 1. If any synced member currently has member.isRunning === true and member.endTime > Date.now(),
+  // immediately start the local Pomodoro timer synced to that exact member.endTime and member.mode.
+  const activeRunning = syncedMembers.find(
+    (m) => m.isRunning && m.endTime && m.endTime > now
+  );
+
+  if (activeRunning && activeRunning.endTime) {
+    const isAlreadyRunningSameEnd =
+      lastKnownTimerState.isRunning &&
+      lastKnownTimerState.endTime &&
+      Math.abs(lastKnownTimerState.endTime - activeRunning.endTime) < 500;
+
+    if (!isAlreadyRunningSameEnd) {
+      const remaining = Math.max(0, Math.ceil((activeRunning.endTime - now) / 1000));
+      $incomingTimerSync.set({
+        isRunning: true,
+        mode: activeRunning.mode,
+        endTime: activeRunning.endTime,
+        remainingSeconds: remaining,
+        updatedBy: activeRunning.id,
+        senderId: activeRunning.id,
+        timestamp: now,
+      });
+    }
+    return;
+  }
+
+  // 2. If no synced member is running, adopt their paused remainingSeconds and mode
+  if (!lastKnownTimerState.isRunning) {
+    const pausedMember = syncedMembers.find(
+      (m) => !m.isRunning && typeof m.remainingSeconds === 'number'
+    );
+    if (pausedMember) {
+      const isAlreadyPausedSame =
+        !lastKnownTimerState.isRunning &&
+        lastKnownTimerState.mode === pausedMember.mode &&
+        lastKnownTimerState.remainingSeconds === pausedMember.remainingSeconds;
+
+      if (!isAlreadyPausedSame) {
+        $incomingTimerSync.set({
+          isRunning: false,
+          mode: pausedMember.mode,
+          endTime: null,
+          remainingSeconds: pausedMember.remainingSeconds,
+          updatedBy: pausedMember.id,
+          senderId: pausedMember.id,
+          timestamp: now,
+        });
+      }
+    }
+  }
+}
+
 export function setSyncedMode(synced: boolean) {
   const current = $studyRoom.get();
   $studyRoom.set({ ...current, isSynced: synced });
@@ -202,39 +283,11 @@ export function setSyncedMode(synced: boolean) {
   // Update presence with new synced flag
   if (current.isConnected && activeChannel) {
     updatePresence(lastKnownTimerState);
+  }
 
-    // If switched back to Synced, check if other room members are running an active synced timer
-    if (synced && current.members.length > 0) {
-      const activeSyncedMember = current.members.find(
-        (m) => !m.isSelf && m.isSynced && m.isRunning && m.endTime && m.endTime > Date.now()
-      );
-      if (activeSyncedMember) {
-        $incomingTimerSync.set({
-          isRunning: true,
-          mode: activeSyncedMember.mode,
-          endTime: activeSyncedMember.endTime,
-          remainingSeconds: Math.max(0, Math.ceil((activeSyncedMember.endTime - Date.now()) / 1000)),
-          updatedBy: activeSyncedMember.id,
-          senderId: activeSyncedMember.id,
-          timestamp: Date.now(),
-        });
-      } else {
-        const pausedSyncedMember = current.members.find(
-          (m) => !m.isSelf && m.isSynced && !m.isRunning && typeof m.remainingSeconds === 'number'
-        );
-        if (pausedSyncedMember) {
-          $incomingTimerSync.set({
-            isRunning: false,
-            mode: pausedSyncedMember.mode,
-            endTime: null,
-            remainingSeconds: pausedSyncedMember.remainingSeconds,
-            updatedBy: pausedSyncedMember.id,
-            senderId: pausedSyncedMember.id,
-            timestamp: Date.now(),
-          });
-        }
-      }
-    }
+  // Instant catch-up on toggling Synced
+  if (synced) {
+    checkAndApplyRoomTimerCatchUp();
   }
 }
 
@@ -243,37 +296,299 @@ export function toggleSynced() {
 }
 
 // Extract presence state into clean members list
-function parsePresenceMembers(
+export function parsePresenceMembers(
   presenceState: Record<string, any[]>,
   selfId: string
 ): StudyBuddy[] {
-  const list: StudyBuddy[] = [];
+  const byId = new Map<string, StudyBuddy>();
 
   for (const [key, presences] of Object.entries(presenceState)) {
-    if (!presences || presences.length === 0) continue;
-    const latest = presences[presences.length - 1];
-    list.push({
-      id: key,
-      username: latest.username || 'Anonymous',
-      appType: latest.appType === 'patio' ? 'patio' : 'window',
-      status: latest.status || 'Idle',
-      mode: latest.mode || 'focus',
-      remainingSeconds: typeof latest.remainingSeconds === 'number' ? latest.remainingSeconds : 25 * 60,
-      isRunning: Boolean(latest.isRunning),
-      endTime: latest.endTime || null,
-      isSynced: latest.isSynced !== false,
-      avatarColor: latest.avatarColor || getAvatarColor(latest.username || key),
-      updatedAt: latest.updatedAt || Date.now(),
-      isSelf: key === selfId,
-    });
+    if (!presences || !Array.isArray(presences)) continue;
+
+    for (const item of presences) {
+      if (!item) continue;
+      const id = String(item.id || key);
+
+      // Read member.isSynced directly (never default another user to Solo if isSynced === true)
+      let isMemberSynced = true;
+      if (typeof item.isSynced === 'boolean') {
+        isMemberSynced = item.isSynced;
+      } else if (typeof item.synced === 'boolean') {
+        isMemberSynced = item.synced;
+      } else if (typeof item.is_synced === 'boolean') {
+        isMemberSynced = item.is_synced;
+      } else if (item.isSynced === 'false' || item.synced === 'false' || item.is_synced === 'false') {
+        isMemberSynced = false;
+      }
+
+      const isRunning = Boolean(item.isRunning);
+      const mode: 'focus' | 'break' = item.mode === 'break' ? 'break' : 'focus';
+      const status: 'Focusing' | 'Break' | 'Idle' =
+        item.status === 'Focusing' || item.status === 'Break' || item.status === 'Idle'
+          ? item.status
+          : isRunning
+          ? (mode === 'focus' ? 'Focusing' : 'Break')
+          : 'Idle';
+
+      // Read all peers without filtering by appType ('patio', 'window', or undefined)
+      const rawAppType = String(item.appType || '').toLowerCase();
+      const appType: 'window' | 'patio' = rawAppType === 'patio' ? 'patio' : 'window';
+
+      const candidate: StudyBuddy = {
+        id,
+        username: String(item.username || 'Anonymous'),
+        appType,
+        status,
+        mode,
+        remainingSeconds: typeof item.remainingSeconds === 'number' ? item.remainingSeconds : 25 * 60,
+        isRunning,
+        endTime: typeof item.endTime === 'number' ? item.endTime : null,
+        isSynced: isMemberSynced,
+        avatarColor: item.avatarColor || getAvatarColor(String(item.username || id)),
+        updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : Date.now(),
+        isSelf: id === selfId || key === selfId,
+      };
+
+      // Deduplicate only by member.id (falling back to Supabase presence key)
+      const existing = byId.get(id);
+      if (!existing || candidate.updatedAt >= existing.updatedAt) {
+        byId.set(id, candidate);
+      }
+    }
   }
 
-  // Sort: Self first, then alphabetical
+  const list = Array.from(byId.values());
+
+  // Sort: Local user (sessionTabId) appears first with (You) and all other connected users right below
   return list.sort((a, b) => {
-    if (a.isSelf) return -1;
-    if (b.isSelf) return 1;
+    if (a.isSelf && !b.isSelf) return -1;
+    if (!a.isSelf && b.isSelf) return 1;
     return a.username.localeCompare(b.username);
   });
+}
+
+// Schedule automatic reconnect with debounce
+function scheduleReconnect(delay = 2000) {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+  }
+  const state = $studyRoom.get();
+  // Do not reconnect if user has explicitly left
+  if (!state.isConnected && !state.isJoined) return;
+
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    const currentState = $studyRoom.get();
+    if (!currentState.isConnected && !currentState.isJoined) return;
+
+    console.log('[StudyRoom] Attempting silent auto-reconnect to room:', currentState.roomCode);
+    await connectChannel(currentState.roomCode, currentState.username);
+  }, delay);
+}
+
+// Connect channel with robust error handling and silent auto-reconnect
+async function connectChannel(room: string, user: string): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase) {
+    $studyRoom.set({
+      ...$studyRoom.get(),
+      connectionStatus: 'error',
+      isConnected: false,
+      isJoined: false,
+      isConnecting: false,
+      error: 'Offline / Check .env',
+    });
+    return false;
+  }
+
+  // Clear existing reconnect timer if any
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  // Clean up any existing channel cleanly
+  if (activeChannel) {
+    try {
+      await activeChannel.untrack();
+      await supabase.removeChannel(activeChannel);
+    } catch {}
+    activeChannel = null;
+  }
+
+  const sessionTabId = getSessionTabId();
+  const avatarColor = getAvatarColor(user);
+
+  try {
+    // Standardized channel name across Window and Sliding Glass Doors apps:
+    // cozy-study-room:${cleanRoom}
+    const channel = supabase.channel(`cozy-study-room:${room}`, {
+      config: {
+        presence: {
+          key: sessionTabId,
+        },
+        broadcast: {
+          self: false,
+        },
+      },
+    });
+
+    const updateMembersFromPresence = () => {
+      const raw = channel.presenceState();
+      const members = parsePresenceMembers(raw, sessionTabId);
+
+      $studyRoom.set({
+        ...$studyRoom.get(),
+        members,
+        isConnected: true,
+        isJoined: true,
+        connectionStatus: 'online',
+        isConnecting: false,
+        isFormOpen: false,
+        error: null,
+      });
+
+      // Instant Catch-Up on Room Join:
+      // If another synced user in the room already has an active isRunning timer, immediately adopt their endTime and mode
+      checkAndApplyRoomTimerCatchUp(members);
+    };
+
+    // Presence listeners for 'sync', 'join', and 'leave' events
+    channel
+      .on('presence', { event: 'sync' }, updateMembersFromPresence)
+      .on('presence', { event: 'join' }, updateMembersFromPresence)
+      .on('presence', { event: 'leave' }, updateMembersFromPresence);
+
+    // Broadcast timer_sync listener
+    channel.on('broadcast', { event: 'timer_sync' }, ({ payload }) => {
+      if (!payload) return;
+      // Ignore broadcast from our own tab
+      if (payload.updatedBy === sessionTabId || payload.senderId === sessionTabId) {
+        return;
+      }
+
+      const state = $studyRoom.get();
+      // Whenever isSynced === true (and updatedBy !== myTabId), immediately apply
+      if (state.isSynced) {
+        $incomingTimerSync.set(payload as TimerSyncPayload);
+      }
+    });
+
+    // Subscribe to channel status callback
+    channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        activeChannel = channel;
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+
+        const currentTimer = lastKnownTimerState;
+        // Standardized Presence Track Payload:
+        // { id, username, appType: 'window', status: isRunning ? (mode === 'focus' ? 'Focusing' : 'Break') : 'Idle', remainingSeconds, endTime: isRunning ? endTime : null, isRunning, mode, isSynced }
+        const initialPresence = {
+          id: sessionTabId,
+          username: user,
+          appType: 'window' as const,
+          status: currentTimer.isRunning
+            ? (currentTimer.mode === 'focus' ? 'Focusing' : 'Break')
+            : 'Idle',
+          remainingSeconds: currentTimer.remainingSeconds,
+          endTime: currentTimer.isRunning ? currentTimer.endTime : null,
+          isRunning: Boolean(currentTimer.isRunning),
+          mode: currentTimer.mode,
+          isSynced: Boolean($studyRoom.get().isSynced),
+          synced: Boolean($studyRoom.get().isSynced),
+          avatarColor,
+          updatedAt: Date.now(),
+        };
+
+        try {
+          await channel.track(initialPresence);
+        } catch (err) {
+          console.warn('Presence track error:', err);
+        }
+
+        $studyRoom.set({
+          ...$studyRoom.get(),
+          isConnected: true,
+          isJoined: true,
+          connectionStatus: 'online',
+          isConnecting: false,
+          isFormOpen: false,
+          error: null,
+        });
+
+        // Trigger initial sync immediately after channel.track(...) so pre-existing peers are never missed
+        updateMembersFromPresence();
+      } else if (status === 'TIMED_OUT' || status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        const state = $studyRoom.get();
+        // NEVER kick user out if they are joined to the room!
+        if (state.isConnected || state.isJoined) {
+          console.warn(`[StudyRoom] Channel status '${status}', scheduling retry and removing dead channel...`);
+          $studyRoom.set({
+            ...state,
+            isConnected: true,
+            isJoined: true,
+            connectionStatus: 'reconnecting',
+            isConnecting: true,
+          });
+
+          // 1. Immediately remove the dead channel from supabase client
+          try {
+            channel.untrack();
+            supabase?.removeChannel(channel);
+          } catch {}
+          if (activeChannel === channel) {
+            activeChannel = null;
+          }
+
+          // 2. Schedule a 2-second retry that opens a fresh channel
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+          }
+          reconnectTimer = setTimeout(async () => {
+            reconnectTimer = null;
+            const currentState = $studyRoom.get();
+            if (!currentState.isConnected && !currentState.isJoined) return;
+            console.log(`[StudyRoom] Attempting silent auto-reconnect to room: ${currentState.roomCode}`);
+            await connectChannel(currentState.roomCode, currentState.username);
+          }, 2000);
+        } else {
+          $studyRoom.set({
+            ...state,
+            isConnected: false,
+            isJoined: false,
+            connectionStatus: 'error',
+            isConnecting: false,
+            error: 'Offline / Check .env',
+          });
+        }
+      }
+    });
+
+    return true;
+  } catch (err) {
+    console.error('Failed to connect study room:', err);
+    const state = $studyRoom.get();
+    if (state.isConnected || state.isJoined) {
+      $studyRoom.set({
+        ...state,
+        connectionStatus: 'reconnecting',
+        isConnecting: true,
+      });
+      scheduleReconnect(2000);
+    } else {
+      $studyRoom.set({
+        ...state,
+        isConnected: false,
+        isJoined: false,
+        connectionStatus: 'error',
+        isConnecting: false,
+        error: 'Offline / Check .env',
+      });
+    }
+    return false;
+  }
 }
 
 // Join room using unified Supabase Realtime channel
@@ -283,6 +598,7 @@ export async function joinRoom(targetRoom?: string, targetName?: string) {
       ...$studyRoom.get(),
       connectionStatus: 'error',
       isConnected: false,
+      isJoined: false,
       isConnecting: false,
       error: 'Offline / Check .env',
     });
@@ -302,21 +618,22 @@ export async function joinRoom(targetRoom?: string, targetName?: string) {
     return false;
   }
 
-  // Clean up any existing connection
-  if (activeChannel) {
-    try {
-      await activeChannel.untrack();
-      await supabase.removeChannel(activeChannel);
-    } catch {}
-    activeChannel = null;
+  // Clear existing reconnect timer if any
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
   }
 
+  // Mark joined immediately so user is kept in room view
   $studyRoom.set({
     ...current,
     roomCode: room,
     username: user,
     isConnecting: true,
+    isConnected: true,
+    isJoined: true,
     connectionStatus: 'connecting',
+    isFormOpen: false,
     error: null,
   });
 
@@ -327,153 +644,16 @@ export async function joinRoom(targetRoom?: string, targetName?: string) {
     } catch {}
   }
 
-  const sessionTabId = getSessionTabId();
-  const avatarColor = getAvatarColor(user);
-
-  try {
-    // Standardized channel name: cozy-study-room:${cleanRoom}
-    const channel = supabase.channel(`cozy-study-room:${room}`, {
-      config: {
-        presence: {
-          key: sessionTabId,
-        },
-        broadcast: {
-          self: false,
-        },
-      },
-    });
-
-    let hasInheritedInitialState = false;
-
-    // Presence sync listener
-    channel.on('presence', { event: 'sync' }, () => {
-      const raw = channel.presenceState();
-      const members = parsePresenceMembers(raw, sessionTabId);
-
-      $studyRoom.set({
-        ...$studyRoom.get(),
-        members,
-        isConnected: true,
-        connectionStatus: 'connected',
-        isConnecting: false,
-        isFormOpen: false,
-        error: null,
-      });
-
-      // Whenever a user joins (presence sync event) and isSynced === true,
-      // if another synced user in the room already has an active isRunning timer, immediately adopt their endTime and mode
-      if (!hasInheritedInitialState && $studyRoom.get().isSynced) {
-        hasInheritedInitialState = true;
-        const activeSyncedMember = members.find(
-          (m) => !m.isSelf && m.isSynced && m.isRunning && m.endTime && m.endTime > Date.now()
-        );
-        if (activeSyncedMember) {
-          $incomingTimerSync.set({
-            isRunning: true,
-            mode: activeSyncedMember.mode,
-            endTime: activeSyncedMember.endTime,
-            remainingSeconds: Math.max(0, Math.ceil((activeSyncedMember.endTime - Date.now()) / 1000)),
-            updatedBy: activeSyncedMember.id,
-            senderId: activeSyncedMember.id,
-            timestamp: Date.now(),
-          });
-        } else {
-          const pausedMember = members.find(
-            (m) => !m.isSelf && m.isSynced && !m.isRunning && typeof m.remainingSeconds === 'number'
-          );
-          if (pausedMember) {
-            $incomingTimerSync.set({
-              isRunning: false,
-              mode: pausedMember.mode,
-              endTime: null,
-              remainingSeconds: pausedMember.remainingSeconds,
-              updatedBy: pausedMember.id,
-              senderId: pausedMember.id,
-              timestamp: Date.now(),
-            });
-          }
-        }
-      }
-    });
-
-    // Broadcast timer_sync listener
-    channel.on('broadcast', { event: 'timer_sync' }, ({ payload }) => {
-      if (!payload || payload.updatedBy === sessionTabId || payload.senderId === sessionTabId) {
-        return;
-      }
-
-      const state = $studyRoom.get();
-      // If user is in Synced mode, apply broadcast
-      if (state.isSynced) {
-        $incomingTimerSync.set(payload as TimerSyncPayload);
-      }
-    });
-
-    // Subscribe to channel status callback
-    channel.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        activeChannel = channel;
-
-        const currentTimer = lastKnownTimerState;
-        // Standardized Presence Track Payload:
-        // { id: sessionTabId, username, appType: 'window', status: 'Focusing' | 'Break' | 'Idle', remainingSeconds, isSynced }
-        const initialPresence = {
-          id: sessionTabId,
-          username: user,
-          appType: 'window' as const,
-          status: currentTimer.isRunning
-            ? (currentTimer.mode === 'focus' ? 'Focusing' : 'Break')
-            : 'Idle',
-          remainingSeconds: currentTimer.remainingSeconds,
-          isSynced: $studyRoom.get().isSynced,
-          mode: currentTimer.mode,
-          isRunning: currentTimer.isRunning,
-          endTime: currentTimer.endTime,
-          avatarColor,
-          updatedAt: Date.now(),
-        };
-
-        try {
-          await channel.track(initialPresence);
-        } catch (err) {
-          console.warn('Presence track error:', err);
-        }
-
-        $studyRoom.set({
-          ...$studyRoom.get(),
-          isConnected: true,
-          connectionStatus: 'connected',
-          isConnecting: false,
-          isFormOpen: false,
-          error: null,
-        });
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        $studyRoom.set({
-          ...$studyRoom.get(),
-          isConnected: false,
-          connectionStatus: 'error',
-          isConnecting: false,
-          error: 'Offline / Check .env',
-        });
-      }
-    });
-
-    return true;
-  } catch (err) {
-    console.error('Failed to join study room:', err);
-    $studyRoom.set({
-      ...$studyRoom.get(),
-      isConnected: false,
-      connectionStatus: 'error',
-      isConnecting: false,
-      error: 'Offline / Check .env',
-    });
-    return false;
-  }
+  return await connectChannel(room, user);
 }
 
-// Leave room cleanly
+// Leave room cleanly (user explicitly clicked Leave)
 export async function leaveRoom() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
   if (activeChannel && supabase) {
     try {
       await activeChannel.untrack();
@@ -486,13 +666,14 @@ export async function leaveRoom() {
     ...$studyRoom.get(),
     connectionStatus: 'disconnected',
     isConnected: false,
+    isJoined: false,
     isConnecting: false,
     members: [],
     error: null,
   });
 }
 
-// Broadcast timer sync event
+// Broadcast timer sync event (throttled to meaningful transitions: start/pause/reset/mode-change)
 export async function broadcastTimerSync(payload: {
   isRunning: boolean;
   mode: 'focus' | 'break';
@@ -503,7 +684,7 @@ export async function broadcastTimerSync(payload: {
   updatePresence(payload);
 
   const state = $studyRoom.get();
-  if (!state.isConnected || !state.isSynced || !activeChannel) return;
+  if ((!state.isConnected && !state.isJoined) || !state.isSynced || !activeChannel) return;
 
   const sessionTabId = getSessionTabId();
   try {
@@ -527,33 +708,35 @@ export async function broadcastTimerSync(payload: {
 }
 
 // Update presence for self
-export async function updatePresence(timerState: {
+export async function updatePresence(timerState?: {
   isRunning: boolean;
   mode: 'focus' | 'break';
   endTime: number | null;
   remainingSeconds: number;
 }) {
-  setTimerSnapshot(timerState);
+  const currentState = timerState || lastKnownTimerState;
+  setTimerSnapshot(currentState);
 
   const state = $studyRoom.get();
-  if (!state.isConnected || !activeChannel) return;
+  if ((!state.isConnected && !state.isJoined) || !activeChannel) return;
 
   const sessionTabId = getSessionTabId();
   const avatarColor = getAvatarColor(state.username || sessionTabId);
 
-  // Unified Presence Track Payload Schema
+  // Exact Presence Track Payload Schema
   const payload = {
     id: sessionTabId,
     username: state.username || 'StudyBuddy',
     appType: 'window' as const,
-    status: timerState.isRunning
-      ? (timerState.mode === 'focus' ? 'Focusing' : 'Break')
+    status: currentState.isRunning
+      ? (currentState.mode === 'focus' ? 'Focusing' : 'Break')
       : 'Idle',
-    remainingSeconds: timerState.remainingSeconds,
-    isSynced: state.isSynced,
-    mode: timerState.mode,
-    isRunning: timerState.isRunning,
-    endTime: timerState.endTime,
+    remainingSeconds: currentState.remainingSeconds,
+    endTime: currentState.isRunning ? currentState.endTime : null,
+    isRunning: Boolean(currentState.isRunning),
+    mode: currentState.mode,
+    isSynced: Boolean(state.isSynced),
+    synced: Boolean(state.isSynced),
     avatarColor,
     updatedAt: Date.now(),
   };
@@ -562,5 +745,51 @@ export async function updatePresence(timerState: {
     await activeChannel.track(payload);
   } catch (err) {
     console.warn('Update presence error:', err);
+  }
+}
+
+// Background tab visibility & online recovery listeners
+if (typeof document !== 'undefined') {
+  const handleVisibilityRecovery = () => {
+    if (document.visibilityState === 'visible') {
+      const state = $studyRoom.get();
+      if (state.isConnected || state.isJoined) {
+        const channelState = activeChannel?.state;
+        if (!activeChannel || channelState !== 'joined') {
+          console.log('[StudyRoom] Tab visible / online: channel state is ' + channelState + ', reconnecting immediately...');
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+          }
+          if (activeChannel && supabase) {
+            try {
+              supabase.removeChannel(activeChannel);
+            } catch {}
+            activeChannel = null;
+          }
+          connectChannel(state.roomCode, state.username);
+        } else {
+          console.log('[StudyRoom] Tab visible: channel is joined, re-tracking presence...');
+          updatePresence();
+          try {
+            const raw = activeChannel.presenceState();
+            const members = parsePresenceMembers(raw, getSessionTabId());
+            $studyRoom.set({
+              ...$studyRoom.get(),
+              members,
+              connectionStatus: 'online',
+              isConnecting: false,
+            });
+            checkAndApplyRoomTimerCatchUp(members);
+          } catch {}
+        }
+      }
+    }
+  };
+
+  document.addEventListener('visibilitychange', handleVisibilityRecovery);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('focus', handleVisibilityRecovery);
+    window.addEventListener('online', handleVisibilityRecovery);
   }
 }

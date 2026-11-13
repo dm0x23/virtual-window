@@ -107,16 +107,19 @@ export default function PomodoroTimer() {
     }
   }, [incomingSync, studyRoom.isConnected, studyRoom.isSynced]);
 
-  // Sync timeLeft when config changes and timer is paused/stopped
+  // Sync timeLeft when config explicitly changes and timer is paused/stopped
+  const prevConfigRef = useRef(config);
   useEffect(() => {
-    if (!isRunning) {
-      if (mode === 'focus') {
-        setTimeLeft(config.focusMinutes * 60);
-      } else {
-        setTimeLeft(config.breakMinutes * 60);
+    if (
+      prevConfigRef.current.focusMinutes !== config.focusMinutes ||
+      prevConfigRef.current.breakMinutes !== config.breakMinutes
+    ) {
+      prevConfigRef.current = config;
+      if (!isRunning) {
+        setTimeLeft((mode === 'focus' ? config.focusMinutes : config.breakMinutes) * 60);
       }
     }
-  }, [config, mode, isRunning]);
+  }, [config, isRunning, mode]);
 
   // Initialize background-safe inline Web Worker
   useEffect(() => {
