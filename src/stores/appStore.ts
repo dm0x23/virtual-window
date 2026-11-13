@@ -1,6 +1,7 @@
 import { atom } from 'nanostores';
 
-export type WeatherType = 'sunny' | 'sunset' | 'cloudy' | 'rainy' | 'thunder' | 'snowy' | 'night';
+export type TimeOfDayType = 'day' | 'sunset' | 'night';
+export type WeatherType = 'clear' | 'cloudy' | 'rainy' | 'thunder' | 'snowy';
 export type SceneryType = 'countryside' | 'ocean' | 'mountains' | 'city';
 
 export interface SceneProps {
@@ -41,17 +42,6 @@ export interface TaskItem {
   createdAt: number;
 }
 
-// Auto-Linked Weather Sound Presets
-export const WEATHER_SOUND_PRESETS: Record<WeatherType, SoundChannels> = {
-  sunny: { rain: false, thunder: false, trees: true, birds: true, waves: false },
-  sunset: { rain: false, thunder: false, trees: true, birds: true, waves: false },
-  cloudy: { rain: false, thunder: false, trees: true, birds: false, waves: false },
-  rainy: { rain: true, thunder: false, trees: false, birds: false, waves: false },
-  thunder: { rain: true, thunder: true, trees: false, birds: false, waves: false },
-  snowy: { rain: false, thunder: false, trees: true, birds: false, waves: false },
-  night: { rain: false, thunder: false, trees: false, birds: false, waves: false },
-};
-
 // Helper to safely read from localStorage
 const getStored = <T>(key: string, defaultValue: T): T => {
   if (typeof window === 'undefined') return defaultValue;
@@ -64,7 +54,8 @@ const getStored = <T>(key: string, defaultValue: T): T => {
 };
 
 // State Atoms
-export const $weather = atom<WeatherType>('sunny');
+export const $timeOfDay = atom<TimeOfDayType>('day');
+export const $weather = atom<WeatherType>('clear');
 export const $scenery = atom<SceneryType>('countryside');
 export const $sceneProps = atom<SceneProps>({
   plant: true,
@@ -147,11 +138,29 @@ export function parseYouTubeUrl(raw: string): string | null {
 export function initStore() {
   if (typeof window === 'undefined') return;
 
-  let savedWeather = getStored<WeatherType>('vw_weather', 'sunny');
-  if (!savedWeather || savedWeather === 'night') {
-    savedWeather = 'sunny';
+  // Hydrate Time of Day
+  let savedTod = getStored<TimeOfDayType>('vw_timeOfDay', 'day');
+  if (savedTod !== 'day' && savedTod !== 'sunset' && savedTod !== 'night') {
+    savedTod = 'day';
   }
-  $weather.set(savedWeather);
+  $timeOfDay.set(savedTod);
+
+  // Hydrate Weather (with backward-compatibility migration from legacy combined keys)
+  let savedWeather = getStored<any>('vw_weather', 'clear');
+  if (savedWeather === 'sunny') {
+    savedWeather = 'clear';
+    $timeOfDay.set('day');
+  } else if (savedWeather === 'sunset') {
+    savedWeather = 'clear';
+    $timeOfDay.set('sunset');
+  } else if (savedWeather === 'night') {
+    savedWeather = 'clear';
+    $timeOfDay.set('night');
+  }
+  if (!['clear', 'cloudy', 'rainy', 'thunder', 'snowy'].includes(savedWeather)) {
+    savedWeather = 'clear';
+  }
+  $weather.set(savedWeather as WeatherType);
 
   const savedScenery = getStored<SceneryType>('vw_scenery', 'countryside');
   $scenery.set(savedScenery);
@@ -178,7 +187,15 @@ export function initStore() {
   const savedSpotify = getStored<string>('vw_spotify', 'playlist/37i9dQZF1DXdLEN7aqioXM');
   $spotifyUri.set(savedSpotify);
 
-  const savedSounds = getStored<SoundChannels>('vw_sounds', WEATHER_SOUND_PRESETS[savedWeather]);
+  const isOcean = savedScenery === 'ocean';
+  const defaultSounds: SoundChannels = {
+    rain: savedWeather === 'rainy' || savedWeather === 'thunder',
+    thunder: savedWeather === 'thunder',
+    trees: savedWeather !== 'rainy' && savedWeather !== 'thunder',
+    birds: savedWeather === 'clear' && savedTod !== 'night',
+    waves: isOcean,
+  };
+  const savedSounds = getStored<SoundChannels>('vw_sounds', defaultSounds);
   $soundChannels.set(savedSounds);
 
   const savedVolumes = getStored<SoundVolumes>('vw_soundvols', {
@@ -205,6 +222,9 @@ export function initStore() {
   $youtubeEmbedUrl.set(savedYt);
 
   // Auto-persist on changes
+  $timeOfDay.subscribe((t) => {
+    try { localStorage.setItem('vw_timeOfDay', JSON.stringify(t)); } catch {}
+  });
   $weather.subscribe((w) => {
     try { localStorage.setItem('vw_weather', JSON.stringify(w)); } catch {}
   });
@@ -251,30 +271,89 @@ export function initStore() {
   });
 }
 
+// Smart Audio Auto-Presets (Respecting Both Selectors)
+function applySmartSoundPresets(tod: TimeOfDayType, weather: WeatherType) {
+  const isOcean = $scenery.get() === 'ocean';
+  const currentChannels = $soundChannels.get();
+  const vols = $soundVolumes.get();
+
+  let targetChannels: SoundChannels;
+
+  switch (weather) {
+    case 'clear':
+      targetChannels = {
+        rain: false,
+        thunder: false,
+        trees: true,
+        birds: tod !== 'night',
+        waves: isOcean ? true : currentChannels.waves,
+      };
+      break;
+    case 'cloudy':
+      targetChannels = {
+        rain: false,
+        thunder: false,
+        trees: true,
+        birds: false,
+        waves: isOcean ? true : currentChannels.waves,
+      };
+      break;
+    case 'rainy':
+      targetChannels = {
+        rain: true,
+        thunder: false,
+        trees: false,
+        birds: false,
+        waves: isOcean ? true : currentChannels.waves,
+      };
+      break;
+    case 'thunder':
+      targetChannels = {
+        rain: true,
+        thunder: true,
+        trees: false,
+        birds: false,
+        waves: isOcean ? true : currentChannels.waves,
+      };
+      break;
+    case 'snowy':
+      targetChannels = {
+        rain: false,
+        thunder: false,
+        trees: true, // soft winter breeze
+        birds: false,
+        waves: isOcean ? true : currentChannels.waves,
+      };
+      break;
+  }
+
+  $soundChannels.set(targetChannels);
+
+  // Boost volume if enabled channel was at 0
+  let updatedVols = false;
+  const newVols = { ...vols };
+  (Object.keys(targetChannels) as (keyof SoundChannels)[]).forEach((ch) => {
+    if (targetChannels[ch] && newVols[ch] <= 0.05) {
+      newVols[ch] = ch === 'thunder' ? 0.75 : 0.6;
+      updatedVols = true;
+    }
+  });
+  if (updatedVols) {
+    $soundVolumes.set(newVols);
+  }
+}
+
 // Action helpers
+export function setTimeOfDay(tod: TimeOfDayType) {
+  $timeOfDay.set(tod);
+  const weather = $weather.get();
+  applySmartSoundPresets(tod, weather);
+}
+
 export function setWeather(weather: WeatherType) {
   $weather.set(weather);
-  const linked = WEATHER_SOUND_PRESETS[weather];
-  if (linked) {
-    const isOcean = $scenery.get() === 'ocean';
-    $soundChannels.set({
-      ...linked,
-      waves: isOcean ? true : linked.waves,
-    });
-    // Boost volume if enabled channel was at 0
-    const vols = $soundVolumes.get();
-    let updated = false;
-    const newVols = { ...vols };
-    (Object.keys(linked) as (keyof SoundChannels)[]).forEach((ch) => {
-      if (linked[ch] && newVols[ch] <= 0.05) {
-        newVols[ch] = 0.6;
-        updated = true;
-      }
-    });
-    if (updated) {
-      $soundVolumes.set(newVols);
-    }
-  }
+  const tod = $timeOfDay.get();
+  applySmartSoundPresets(tod, weather);
 }
 
 export function setScenery(scenery: SceneryType) {

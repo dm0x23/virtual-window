@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useStore } from '@nanostores/preact';
 import {
+  $timeOfDay,
   $weather,
   $scenery,
   $sceneProps,
   $soundChannels,
   $soundVolumes,
+  type TimeOfDayType,
   type WeatherType,
   type SceneryType,
 } from '../stores/appStore';
 import { audioService } from '../services/audioService';
 
-interface WeatherPalette {
+interface TimeOfDayPalette {
   skyGradient: string;
-  sunMoonType: 'sun' | 'sunset' | 'moon' | 'cloud' | 'none';
+  sunMoonType: 'sun' | 'sunset' | 'moon';
   sunMoonStyle: Record<string, string>;
   distantHills: string;
   nearHills: string;
@@ -25,9 +27,9 @@ interface WeatherPalette {
   sillHighlight: string;
 }
 
-const WEATHER_PALETTES: Record<WeatherType, WeatherPalette> = {
-  sunny: {
-    skyGradient: 'linear-gradient(180deg, #FDE68A 0%, #FDBA74 45%, #F472B6 100%)',
+const TIME_OF_DAY_PALETTES: Record<TimeOfDayType, TimeOfDayPalette> = {
+  day: {
+    skyGradient: 'linear-gradient(180deg, #38BDF8 0%, #7DD3FC 35%, #BAE6FD 65%, #FDE68A 100%)',
     sunMoonType: 'sun',
     sunMoonStyle: {
       backgroundColor: '#FEF3C7',
@@ -58,86 +60,26 @@ const WEATHER_PALETTES: Record<WeatherType, WeatherPalette> = {
     sillWood: '#482B1D',
     sillHighlight: '#683F2B',
   },
-  cloudy: {
-    skyGradient: 'linear-gradient(180deg, #94A3B8 0%, #CBD5E1 55%, #E2E8F0 100%)',
-    sunMoonType: 'cloud',
-    sunMoonStyle: {
-      backgroundColor: 'rgba(255, 255, 255, 0.5)',
-      boxShadow: '0 0 80px 30px rgba(255, 255, 255, 0.4)',
-    },
-    distantHills: '#64748B',
-    nearHills: '#475569',
-    treesColor: '#334155',
-    cloudColor: '#FFFFFF',
-    cloudOpacity: 0.85,
-    frameWood: '#3A2B22',
-    sillWood: '#48352A',
-    sillHighlight: '#5E4638',
-  },
-  rainy: {
-    skyGradient: 'linear-gradient(180deg, #334155 0%, #1E293B 50%, #0F172A 100%)',
-    sunMoonType: 'cloud',
-    sunMoonStyle: {
-      backgroundColor: 'rgba(148, 163, 184, 0.25)',
-      boxShadow: '0 0 50px 15px rgba(148, 163, 184, 0.2)',
-    },
-    distantHills: '#1E293B',
-    nearHills: '#0F172A',
-    treesColor: '#090D16',
-    cloudColor: '#334155',
-    cloudOpacity: 0.8,
-    frameWood: '#27201C',
-    sillWood: '#332A24',
-    sillHighlight: '#4A3D34',
-  },
-  thunder: {
-    skyGradient: 'linear-gradient(180deg, #090D16 0%, #111827 50%, #030712 100%)',
-    sunMoonType: 'none',
-    sunMoonStyle: {},
-    distantHills: '#0F172A',
-    nearHills: '#030712',
-    treesColor: '#020408',
-    cloudColor: '#1E293B',
-    cloudOpacity: 0.9,
-    frameWood: '#1C1613',
-    sillWood: '#241B17',
-    sillHighlight: '#382B24',
-  },
-  snowy: {
-    skyGradient: 'linear-gradient(180deg, #94A3B8 0%, #BAE6FD 50%, #E0E7FF 100%)',
-    sunMoonType: 'cloud',
-    sunMoonStyle: {
-      backgroundColor: '#FFFFFF',
-      boxShadow: '0 0 70px 25px rgba(255, 255, 255, 0.6)',
-    },
-    distantHills: '#64748B',
-    nearHills: '#3B82F6',
-    treesColor: '#334155',
-    cloudColor: '#FFFFFF',
-    cloudOpacity: 0.7,
-    frameWood: '#382F29',
-    sillWood: '#443A33',
-    sillHighlight: '#5A4E45',
-  },
   night: {
-    skyGradient: 'linear-gradient(180deg, #020617 0%, #0F172A 50%, #1E1B4B 100%)',
+    skyGradient: 'linear-gradient(180deg, #030712 0%, #090D16 35%, #111827 70%, #1E1B4B 100%)',
     sunMoonType: 'moon',
     sunMoonStyle: {
       backgroundColor: '#FEF3C7',
-      boxShadow: '0 0 70px 25px rgba(254, 243, 199, 0.4)',
+      boxShadow: '0 0 70px 25px rgba(254, 243, 199, 0.45)',
     },
-    distantHills: '#1E1B4B',
-    nearHills: '#090D16',
-    treesColor: '#030712',
+    distantHills: '#0B0F19',
+    nearHills: '#030712',
+    treesColor: '#020408',
     cloudColor: '#1E293B',
-    cloudOpacity: 0.6,
-    frameWood: '#1C1613',
-    sillWood: '#261F1B',
-    sillHighlight: '#382D26',
+    cloudOpacity: 0.45,
+    frameWood: '#201814',
+    sillWood: '#2C201A',
+    sillHighlight: '#3E2E25',
   },
 };
 
 export default function WindowScene() {
+  const timeOfDay = useStore($timeOfDay);
   const weather = useStore($weather);
   const scenery = useStore($scenery);
   const sceneProps = useStore($sceneProps);
@@ -165,7 +107,7 @@ export default function WindowScene() {
     return () => window.removeEventListener('virtual-window-lightning', handleLightning);
   }, []);
 
-  const p = WEATHER_PALETTES[weather] || WEATHER_PALETTES.sunny;
+  const p = TIME_OF_DAY_PALETTES[timeOfDay] || TIME_OF_DAY_PALETTES.day;
 
   // Particle Canvas for Raindrops, Snow, Cloudy Leaves, or Night Stars
   useEffect(() => {
@@ -267,6 +209,23 @@ export default function WindowScene() {
     const render = () => {
       ctx.clearRect(0, 0, width, height);
 
+      // 1. Twinkling Stars (Active during Night, unobscured by Thunder)
+      if (timeOfDay === 'night' && weather !== 'thunder') {
+        const starDim = weather === 'rainy' ? 0.35 : weather === 'cloudy' ? 0.55 : 1.0;
+        for (let i = 0; i < stars.length; i++) {
+          const st = stars[i];
+          st.alpha += st.pulseSpeed;
+          if (st.alpha > 1 || st.alpha < 0.2) {
+            st.pulseSpeed = -st.pulseSpeed;
+          }
+          ctx.beginPath();
+          ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.08, Math.min(1, st.alpha * starDim))})`;
+          ctx.fill();
+        }
+      }
+
+      // 2. Angled Rain Particles & Splashes
       if (weather === 'rainy' || weather === 'thunder') {
         const angle = weather === 'thunder' ? 0.35 : 0.22;
         ctx.strokeStyle = weather === 'thunder' ? 'rgba(224, 242, 254, 0.7)' : 'rgba(186, 230, 253, 0.55)';
@@ -314,7 +273,10 @@ export default function WindowScene() {
           ctx.lineWidth = 1;
           ctx.stroke();
         }
-      } else if (weather === 'snowy') {
+      }
+
+      // 3. Snowflakes (Gentle drift across any timeOfDay)
+      if (weather === 'snowy') {
         ctx.fillStyle = '#FFFFFF';
         for (let i = 0; i < snowflakes.length; i++) {
           const sn = snowflakes[i];
@@ -331,7 +293,10 @@ export default function WindowScene() {
             sn.x = Math.random() * width;
           }
         }
-      } else if (weather === 'cloudy' && sceneProps.leaves) {
+      }
+
+      // 4. Drifting Autumn Leaves
+      if (weather === 'cloudy' && sceneProps.leaves) {
         for (let i = 0; i < leaves.length; i++) {
           const lf = leaves[i];
           ctx.save();
@@ -352,18 +317,6 @@ export default function WindowScene() {
             lf.y = Math.random() * (height * 0.7);
           }
         }
-      } else if (weather === 'night') {
-        for (let i = 0; i < stars.length; i++) {
-          const st = stars[i];
-          st.alpha += st.pulseSpeed;
-          if (st.alpha > 1 || st.alpha < 0.2) {
-            st.pulseSpeed = -st.pulseSpeed;
-          }
-          ctx.beginPath();
-          ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.1, Math.min(1, st.alpha))})`;
-          ctx.fill();
-        }
       }
 
       animationFrameId = requestAnimationFrame(render);
@@ -375,7 +328,7 @@ export default function WindowScene() {
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(animationFrameId);
     };
-  }, [weather, sceneProps.leaves]);
+  }, [timeOfDay, weather, sceneProps.leaves]);
 
   return (
     <div className="relative w-full h-full w-screen h-screen overflow-hidden select-none bg-slate-950">
@@ -394,6 +347,20 @@ export default function WindowScene() {
           background: p.skyGradient,
         }}
       >
+        {/* ATMOSPHERIC WEATHER TINT OVERLAYS */}
+        {weather === 'cloudy' && (
+          <div className="absolute inset-0 bg-slate-500/20 pointer-events-none transition-opacity duration-1000" />
+        )}
+        {weather === 'rainy' && (
+          <div className="absolute inset-0 bg-slate-900/35 pointer-events-none transition-opacity duration-1000" />
+        )}
+        {weather === 'thunder' && (
+          <div className="absolute inset-0 bg-slate-950/50 pointer-events-none transition-opacity duration-1000" />
+        )}
+        {weather === 'snowy' && (
+          <div className="absolute inset-0 bg-sky-100/10 pointer-events-none transition-opacity duration-1000" />
+        )}
+
         {/* LIGHTNING FLASH OVERLAY (Thunder Weather) */}
         {weather === 'thunder' && (
           <div
@@ -403,75 +370,82 @@ export default function WindowScene() {
         )}
 
         {/* SUN / MOON / SKY GLOW */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden">
-          {p.sunMoonType === 'sun' && (
-            <div
-              className="absolute top-[14%] right-[22%] w-28 h-28 rounded-full transition-all duration-1000"
-              style={p.sunMoonStyle}
-            >
-              <div className="absolute -left-48 top-16 w-[600px] h-96 bg-gradient-to-b from-amber-200/25 to-transparent rotate-45 pointer-events-none blur-2xl" />
-            </div>
-          )}
+        {weather !== 'thunder' && (
+          <div
+            className="absolute inset-0 pointer-events-none overflow-hidden transition-opacity duration-1000"
+            style={{ opacity: weather === 'rainy' ? 0.35 : weather === 'cloudy' ? 0.65 : 1 }}
+          >
+            {p.sunMoonType === 'sun' && (
+              <div
+                className="absolute top-[14%] right-[22%] w-28 h-28 rounded-full transition-all duration-1000"
+                style={p.sunMoonStyle}
+              >
+                <div className="absolute -left-48 top-16 w-[600px] h-96 bg-gradient-to-b from-amber-200/25 to-transparent rotate-45 pointer-events-none blur-2xl" />
+              </div>
+            )}
 
-          {p.sunMoonType === 'sunset' && (
-            <div
-              className="absolute top-[28%] right-[25%] w-32 h-32 rounded-full transition-all duration-1000"
-              style={p.sunMoonStyle}
-            >
-              <div className="absolute -inset-16 bg-gradient-to-r from-rose-500/30 via-orange-400/40 to-amber-300/30 rounded-full blur-2xl pointer-events-none" />
-            </div>
-          )}
+            {p.sunMoonType === 'sunset' && (
+              <div
+                className="absolute top-[28%] right-[25%] w-32 h-32 rounded-full transition-all duration-1000"
+                style={p.sunMoonStyle}
+              >
+                <div className="absolute -inset-16 bg-gradient-to-r from-rose-500/30 via-orange-400/40 to-amber-300/30 rounded-full blur-2xl pointer-events-none" />
+              </div>
+            )}
 
-          {p.sunMoonType === 'moon' && (
-            <div
-              className="absolute top-[12%] right-[24%] w-20 h-20 rounded-full transition-all duration-1000"
-              style={p.sunMoonStyle}
-            >
-              <div className="absolute -top-1 -right-1 w-16 h-16 rounded-full bg-indigo-950/90" />
-            </div>
-          )}
-
-          {p.sunMoonType === 'cloud' && (
-            <div
-              className="absolute top-[16%] right-[30%] w-32 h-32 rounded-full blur-xl transition-all duration-1000"
-              style={p.sunMoonStyle}
-            />
-          )}
-        </div>
+            {p.sunMoonType === 'moon' && (
+              <div
+                className="absolute top-[12%] right-[24%] w-20 h-20 rounded-full transition-all duration-1000"
+                style={p.sunMoonStyle}
+              >
+                <div className="absolute -top-1 -right-1 w-16 h-16 rounded-full bg-indigo-950/90" />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* CLOUDS (PARALLAX DRIFTING LAYERS) */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
-          <div className="absolute top-[8%] -left-[10%] w-[120%] flex gap-24 animate-clouds-slow" style={{ opacity: p.cloudOpacity * 0.85 }}>
-            <svg className="w-96 h-36" style={{ fill: p.cloudColor }} viewBox="0 0 100 40">
+          <div
+            className="absolute top-[8%] -left-[10%] w-[120%] flex gap-24 animate-clouds-slow"
+            style={{ opacity: weather === 'thunder' ? 0.95 : p.cloudOpacity * 0.85 }}
+          >
+            <svg className="w-96 h-36" style={{ fill: weather === 'thunder' ? '#1e293b' : p.cloudColor }} viewBox="0 0 100 40">
               <path d="M10,35 Q15,10 40,15 Q60,5 80,18 Q95,20 90,35 Z" />
             </svg>
-            <svg className="w-80 h-32" style={{ fill: p.cloudColor }} viewBox="0 0 100 40">
+            <svg className="w-80 h-32" style={{ fill: weather === 'thunder' ? '#1e293b' : p.cloudColor }} viewBox="0 0 100 40">
               <path d="M15,35 Q20,12 45,16 Q65,8 85,22 Q95,25 90,35 Z" />
             </svg>
           </div>
 
-          <div className="absolute top-[16%] -left-[15%] w-[130%] flex gap-32 animate-clouds-mid" style={{ opacity: p.cloudOpacity }}>
-            <svg className="w-80 h-28" style={{ fill: p.cloudColor }} viewBox="0 0 100 40">
+          <div
+            className="absolute top-[16%] -left-[15%] w-[130%] flex gap-32 animate-clouds-mid"
+            style={{ opacity: weather === 'thunder' ? 0.95 : p.cloudOpacity }}
+          >
+            <svg className="w-80 h-28" style={{ fill: weather === 'thunder' ? '#111827' : p.cloudColor }} viewBox="0 0 100 40">
               <path d="M10,35 Q25,8 50,14 Q75,10 88,25 Q95,30 90,35 Z" />
             </svg>
-            <svg className="w-72 h-24" style={{ fill: p.cloudColor }} viewBox="0 0 100 40">
+            <svg className="w-72 h-24" style={{ fill: weather === 'thunder' ? '#111827' : p.cloudColor }} viewBox="0 0 100 40">
               <path d="M20,35 Q30,15 55,18 Q75,12 85,26 Q95,30 90,35 Z" />
             </svg>
           </div>
 
           {(weather === 'cloudy' || weather === 'rainy' || weather === 'thunder' || weather === 'snowy') && (
-            <div className="absolute top-[22%] -left-[20%] w-[140%] flex gap-40 animate-clouds-fast" style={{ opacity: Math.min(1, p.cloudOpacity * 1.1) }}>
-              <svg className="w-96 h-32" style={{ fill: p.cloudColor }} viewBox="0 0 100 40">
+            <div
+              className="absolute top-[22%] -left-[20%] w-[140%] flex gap-40 animate-clouds-fast"
+              style={{ opacity: weather === 'thunder' ? 0.95 : Math.min(1, p.cloudOpacity * 1.1) }}
+            >
+              <svg className="w-96 h-32" style={{ fill: weather === 'thunder' ? '#0f172a' : p.cloudColor }} viewBox="0 0 100 40">
                 <path d="M10,35 Q30,12 55,18 Q78,14 90,26 Q98,30 90,35 Z" />
               </svg>
             </div>
           )}
         </div>
 
-        {/* FLYING BIRDS (Controlled by sceneProps.birds) */}
-        {sceneProps.birds && (weather === 'sunny' || weather === 'sunset') && (
+        {/* FLYING BIRDS (sceneProps.birds active during Day/Sunset Clear/Cloudy) */}
+        {sceneProps.birds && (timeOfDay === 'day' || timeOfDay === 'sunset') && (weather === 'clear' || weather === 'cloudy') && (
           <div className="absolute top-[20%] left-0 pointer-events-none animate-birds">
-            <svg className="w-24 h-16" style={{ fill: weather === 'sunset' ? '#451a03' : '#78350f' }} viewBox="0 0 100 60">
+            <svg className="w-24 h-16" style={{ fill: timeOfDay === 'sunset' ? '#451a03' : '#78350f' }} viewBox="0 0 100 60">
               <path className="animate-wing origin-center" d="M10,25 Q20,10 30,22 Q40,10 50,25 Q40,28 30,24 Q20,28 10,25 Z" />
               <path className="animate-wing origin-center" d="M60,15 Q68,5 75,13 Q82,5 90,15 Q82,18 75,15 Q68,18 60,15 Z" />
               <path className="animate-wing origin-center" d="M35,40 Q42,32 48,38 Q55,32 62,40 Q55,43 48,40 Q42,43 35,40 Z" />
@@ -500,22 +474,27 @@ export default function WindowScene() {
               </svg>
 
               {/* Cozy Distant House with glowing window */}
-              <div className="absolute bottom-20 right-[35%] pointer-events-none">
-                <svg className="w-16 h-12" viewBox="0 0 60 45">
-                  <polygon points="30,5 5,22 55,22" style={{ fill: weather === 'night' || weather === 'thunder' ? '#0f172a' : '#78350f' }} />
-                  <rect x="12" y="22" width="36" height="20" style={{ fill: weather === 'night' || weather === 'thunder' ? '#020617' : '#451a03' }} />
-                  <rect
-                    x="22"
-                    y="26"
-                    width="14"
-                    height="10"
-                    style={{
-                      fill: '#FBBF24',
-                      boxShadow: '0 0 15px rgba(251, 191, 36, 0.9)',
-                    }}
-                  />
-                </svg>
-              </div>
+              {(() => {
+                const isHouseLit = timeOfDay === 'night' || timeOfDay === 'sunset' || weather === 'thunder' || weather === 'rainy';
+                return (
+                  <div className="absolute bottom-20 right-[35%] pointer-events-none">
+                    <svg className="w-16 h-12" viewBox="0 0 60 45">
+                      <polygon points="30,5 5,22 55,22" style={{ fill: timeOfDay === 'night' || weather === 'thunder' ? '#0f172a' : '#78350f' }} />
+                      <rect x="12" y="22" width="36" height="20" style={{ fill: timeOfDay === 'night' || weather === 'thunder' ? '#020617' : '#451a03' }} />
+                      <rect
+                        x="22"
+                        y="26"
+                        width="14"
+                        height="10"
+                        style={{
+                          fill: isHouseLit ? '#FBBF24' : '#94A3B8',
+                          boxShadow: isHouseLit ? '0 0 15px rgba(251, 191, 36, 0.9)' : 'none',
+                        }}
+                      />
+                    </svg>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Proper Exterior Trees with Wooden Trunks & Layered Canopies (sceneProps.trees) */}
@@ -554,128 +533,135 @@ export default function WindowScene() {
         )}
 
         {/* --- SCENERY 2: OCEAN --- */}
-        {scenery === 'ocean' && (
-          <>
-            {/* Deep Ocean Water Base Layer */}
-            <div
-              className="absolute bottom-0 inset-x-0 h-[40%] pointer-events-none transition-all duration-1000"
-              style={{
-                background:
-                  weather === 'night' || weather === 'thunder'
-                    ? 'linear-gradient(180deg, #0f172a 0%, #020617 65%, #000000 100%)'
-                    : weather === 'sunset'
-                    ? 'linear-gradient(180deg, #9a3412 0%, #431407 45%, #1c1917 100%)'
-                    : weather === 'snowy'
-                    ? 'linear-gradient(180deg, #64748b 0%, #334155 50%, #1e293b 100%)'
-                    : 'linear-gradient(180deg, #0284c7 0%, #0369a1 40%, #075985 80%, #0c4a6e 100%)',
-              }}
-            >
-              {/* Horizon Glow Line */}
-              <div className="absolute top-0 inset-x-0 h-1 bg-white/20 blur-[1px]" />
+        {scenery === 'ocean' && (() => {
+          const isLighthouseLit =
+            timeOfDay === 'night' || timeOfDay === 'sunset' || weather === 'thunder' || weather === 'rainy';
 
-              {/* Ocean Shimmer Waves & Highlights */}
-              <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40">
-                <svg className="w-full h-full animate-ocean-shimmer" preserveAspectRatio="none" viewBox="0 0 800 200">
-                  <path d="M0,20 Q100,10 200,20 T400,20 T600,20 T800,20" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" fill="none" />
-                  <path d="M0,45 Q120,35 240,45 T480,45 T720,45 T800,45" stroke="rgba(255,255,255,0.3)" strokeWidth="2" fill="none" />
-                  <path d="M0,75 Q80,65 180,75 T380,75 T580,75 T800,75" stroke="rgba(255,255,255,0.4)" strokeWidth="2.5" fill="none" />
-                  <path d="M0,115 Q140,105 280,115 T560,115 T800,115" stroke="rgba(255,255,255,0.35)" strokeWidth="3" fill="none" />
-                  <path d="M0,155 Q100,145 200,155 T400,155 T600,155 T800,155" stroke="rgba(255,255,255,0.5)" strokeWidth="3.5" fill="none" />
+          return (
+            <>
+              {/* Deep Ocean Water Base Layer */}
+              <div
+                className="absolute bottom-0 inset-x-0 h-[40%] pointer-events-none transition-all duration-1000"
+                style={{
+                  background:
+                    timeOfDay === 'night' || weather === 'thunder'
+                      ? 'linear-gradient(180deg, #0f172a 0%, #020617 65%, #000000 100%)'
+                      : timeOfDay === 'sunset'
+                      ? 'linear-gradient(180deg, #9a3412 0%, #431407 45%, #1c1917 100%)'
+                      : weather === 'rainy'
+                      ? 'linear-gradient(180deg, #334155 0%, #1e293b 50%, #0f172a 100%)'
+                      : weather === 'snowy'
+                      ? 'linear-gradient(180deg, #64748b 0%, #334155 50%, #1e293b 100%)'
+                      : 'linear-gradient(180deg, #0284c7 0%, #0369a1 40%, #075985 80%, #0c4a6e 100%)',
+                }}
+              >
+                {/* Horizon Glow Line */}
+                <div className="absolute top-0 inset-x-0 h-1 bg-white/20 blur-[1px]" />
+
+                {/* Ocean Shimmer Waves & Highlights */}
+                <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40">
+                  <svg className="w-full h-full animate-ocean-shimmer" preserveAspectRatio="none" viewBox="0 0 800 200">
+                    <path d="M0,20 Q100,10 200,20 T400,20 T600,20 T800,20" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" fill="none" />
+                    <path d="M0,45 Q120,35 240,45 T480,45 T720,45 T800,45" stroke="rgba(255,255,255,0.3)" strokeWidth="2" fill="none" />
+                    <path d="M0,75 Q80,65 180,75 T380,75 T580,75 T800,75" stroke="rgba(255,255,255,0.4)" strokeWidth="2.5" fill="none" />
+                    <path d="M0,115 Q140,105 280,115 T560,115 T800,115" stroke="rgba(255,255,255,0.35)" strokeWidth="3" fill="none" />
+                    <path d="M0,155 Q100,145 200,155 T400,155 T600,155 T800,155" stroke="rgba(255,255,255,0.5)" strokeWidth="3.5" fill="none" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Distant Drifting Sailboat */}
+              <div className="absolute bottom-[36%] left-[28%] pointer-events-none animate-sail">
+                <svg className="w-10 h-12 drop-shadow-md" viewBox="0 0 40 45">
+                  <path d="M4,34 Q20,38 36,34 L32,40 Q20,43 8,40 Z" fill={timeOfDay === 'night' || weather === 'thunder' ? '#0f172a' : '#451a03'} />
+                  <line x1="20" y1="8" x2="20" y2="34" stroke="#ffffff" strokeWidth="1.5" />
+                  <path d="M20,10 L34,30 L20,32 Z" fill="#ffffff" opacity="0.95" />
+                  <path d="M18,14 L8,31 L18,31 Z" fill="#f1f5f9" opacity="0.85" />
                 </svg>
               </div>
-            </div>
 
-            {/* Distant Drifting Sailboat */}
-            <div className="absolute bottom-[36%] left-[28%] pointer-events-none animate-sail">
-              <svg className="w-10 h-12 drop-shadow-md" viewBox="0 0 40 45">
-                <path d="M4,34 Q20,38 36,34 L32,40 Q20,43 8,40 Z" fill={weather === 'night' || weather === 'thunder' ? '#0f172a' : '#451a03'} />
-                <line x1="20" y1="8" x2="20" y2="34" stroke="#ffffff" strokeWidth="1.5" />
-                <path d="M20,10 L34,30 L20,32 Z" fill="#ffffff" opacity="0.95" />
-                <path d="M18,14 L8,31 L18,31 Z" fill="#f1f5f9" opacity="0.85" />
-              </svg>
-            </div>
+              {/* Rocky Headland & Coastal Lighthouse with Pinned Lantern Pivot */}
+              <div className="absolute bottom-[80px] right-0 w-[720px] h-[280px] pointer-events-none z-10 overflow-visible">
+                <svg className="w-full h-full overflow-visible" viewBox="0 0 720 280">
+                  <defs>
+                    <linearGradient id="ocean-lighthouse-beam-grad" x1="640" y1="60" x2="0" y2="80" gradientUnits="userSpaceOnUse">
+                      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" style={{ stopColor: '#ffffff', stopOpacity: 0.95 }} />
+                      <stop offset="20%" stop-color="#f8fafc" stop-opacity="0.75" style={{ stopColor: '#f8fafc', stopOpacity: 0.75 }} />
+                      <stop offset="55%" stop-color="#e2e8f0" stop-opacity="0.30" style={{ stopColor: '#e2e8f0', stopOpacity: 0.30 }} />
+                      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" style={{ stopColor: '#ffffff', stopOpacity: 0 }} />
+                    </linearGradient>
+                  </defs>
 
-            {/* Rocky Headland & Coastal Lighthouse with Pinned Lantern Pivot */}
-            <div className="absolute bottom-[80px] right-0 w-[720px] h-[280px] pointer-events-none z-10 overflow-visible">
-              <svg className="w-full h-full overflow-visible" viewBox="0 0 720 280">
-                <defs>
-                  <linearGradient id="ocean-lighthouse-beam-grad" x1="640" y1="60" x2="0" y2="80" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" style={{ stopColor: '#ffffff', stopOpacity: 0.95 }} />
-                    <stop offset="20%" stop-color="#f8fafc" stop-opacity="0.75" style={{ stopColor: '#f8fafc', stopOpacity: 0.75 }} />
-                    <stop offset="55%" stop-color="#e2e8f0" stop-opacity="0.30" style={{ stopColor: '#e2e8f0', stopOpacity: 0.30 }} />
-                    <stop offset="100%" stop-color="#ffffff" stop-opacity="0" style={{ stopColor: '#ffffff', stopOpacity: 0 }} />
-                  </linearGradient>
-                </defs>
+                  {/* 1. Rotating Lighthouse Light Beam */}
+                  {/* Narrow tip pinned directly at lantern coordinates (640, 60) with luminous white tone */}
+                  {isLighthouseLit && (
+                    <polygon
+                      points="640,58 640,62 0,160 0,0"
+                      fill="url(#ocean-lighthouse-beam-grad)"
+                      className="animate-lighthouse-beam"
+                      style={{
+                        transformOrigin: '640px 60px',
+                        transformBox: 'view-box',
+                        mixBlendMode: 'screen',
+                      }}
+                    />
+                  )}
 
-                {/* 1. Rotating Lighthouse Light Beam (Night, Sunset, Thunder) */}
-                {/* Narrow tip pinned directly at lantern coordinates (640, 60) with luminous white tone */}
-                {(weather === 'night' || weather === 'sunset' || weather === 'thunder') && (
-                  <polygon
-                    points="640,58 640,62 0,160 0,0"
-                    fill="url(#ocean-lighthouse-beam-grad)"
-                    className="animate-lighthouse-beam"
-                    style={{
-                      transformOrigin: '640px 60px',
-                      transformBox: 'view-box',
-                      mixBlendMode: 'screen',
-                    }}
+                  {/* 2. Rocky Headland Bluff */}
+                  <path
+                    d="M480,280 L480,220 Q520,170 570,165 Q600,140 640,150 Q680,130 720,140 L720,280 Z"
+                    fill={timeOfDay === 'night' || weather === 'thunder' ? '#090d16' : timeOfDay === 'sunset' ? '#290e05' : '#1e293b'}
                   />
-                )}
+                  <path
+                    d="M540,280 L550,210 Q585,190 630,180 Q670,165 720,170 L720,280 Z"
+                    fill={timeOfDay === 'night' || weather === 'thunder' ? '#020617' : timeOfDay === 'sunset' ? '#1c0a03' : '#0f172a'}
+                  />
 
-                {/* 2. Rocky Headland Bluff */}
-                <path
-                  d="M480,280 L480,220 Q520,170 570,165 Q600,140 640,150 Q680,130 720,140 L720,280 Z"
-                  fill={weather === 'night' || weather === 'thunder' ? '#090d16' : weather === 'sunset' ? '#290e05' : '#1e293b'}
-                />
-                <path
-                  d="M540,280 L550,210 Q585,190 630,180 Q670,165 720,170 L720,280 Z"
-                  fill={weather === 'night' || weather === 'thunder' ? '#020617' : weather === 'sunset' ? '#1c0a03' : '#0f172a'}
-                />
+                  {/* 3. Lighthouse Tower Structure */}
+                  {/* Tapered White Tower */}
+                  <polygon points="631,70 649,70 658,170 622,170" fill="#ffffff" />
+                  {/* Red Bands */}
+                  <polygon points="633,92 647,92 650,116 630,116" fill="#dc2626" />
+                  <polygon points="628,138 652,138 655,162 625,162" fill="#dc2626" />
+                  {/* Entrance Door */}
+                  <path d="M637,170 L637,156 Q640,153 643,156 L643,170 Z" fill="#451a03" />
 
-                {/* 3. Lighthouse Tower Structure */}
-                {/* Tapered White Tower */}
-                <polygon points="631,70 649,70 658,170 622,170" fill="#ffffff" />
-                {/* Red Bands */}
-                <polygon points="633,92 647,92 650,116 630,116" fill="#dc2626" />
-                <polygon points="628,138 652,138 655,162 625,162" fill="#dc2626" />
-                {/* Entrance Door */}
-                <path d="M637,170 L637,156 Q640,153 643,156 L643,170 Z" fill="#451a03" />
+                  {/* 4. Lighthouse Lantern Room & Glow (Exact center at x=640, y=60) */}
+                  <rect x="626" y="68" width="28" height="3" rx="1" fill="#0f172a" />
+                  <rect
+                    x="632"
+                    y="52"
+                    width="16"
+                    height="17"
+                    rx="2"
+                    fill={isLighthouseLit ? 'rgba(255, 255, 255, 0.92)' : 'rgba(226, 232, 240, 0.7)'}
+                    stroke="#94a3b8"
+                    strokeWidth="1.5"
+                  />
+                  <path d="M630,52 Q640,42 650,52 Z" fill="#1e293b" />
+                  <circle cx="640" cy="41" r="2" fill="#1e293b" />
 
-                {/* 4. Lighthouse Lantern Room & Glow (Exact center at x=640, y=60) */}
-                <rect x="626" y="68" width="28" height="3" rx="1" fill="#0f172a" />
-                <rect
-                  x="632"
-                  y="52"
-                  width="16"
-                  height="17"
-                  rx="2"
-                  fill={weather === 'night' || weather === 'sunset' || weather === 'thunder' ? 'rgba(255, 255, 255, 0.92)' : 'rgba(226, 232, 240, 0.7)'}
-                  stroke="#94a3b8"
-                  strokeWidth="1.5"
-                />
-                <path d="M630,52 Q640,42 650,52 Z" fill="#1e293b" />
-                <circle cx="640" cy="41" r="2" fill="#1e293b" />
-
-                {/* Lantern Bulb & Luminous White Halos */}
-                <circle
-                  cx="640"
-                  cy="60"
-                  r="18"
-                  fill="#ffffff"
-                  opacity={weather === 'night' || weather === 'sunset' || weather === 'thunder' ? 0.45 : 0.15}
-                />
-                <circle
-                  cx="640"
-                  cy="60"
-                  r="8"
-                  fill="#f8fafc"
-                  opacity={weather === 'night' || weather === 'sunset' || weather === 'thunder' ? 0.85 : 0.3}
-                />
-                <circle cx="640" cy="60" r="4" fill="#ffffff" />
-              </svg>
-            </div>
-          </>
-        )}
+                  {/* Lantern Bulb & Luminous White Halos */}
+                  <circle
+                    cx="640"
+                    cy="60"
+                    r="18"
+                    fill="#ffffff"
+                    opacity={isLighthouseLit ? 0.45 : 0.15}
+                  />
+                  <circle
+                    cx="640"
+                    cy="60"
+                    r="8"
+                    fill="#f8fafc"
+                    opacity={isLighthouseLit ? 0.85 : 0.3}
+                  />
+                  <circle cx="640" cy="60" r="4" fill="#ffffff" />
+                </svg>
+              </div>
+            </>
+          );
+        })()}
 
         {/* --- SCENERY 3: MOUNTAINS --- */}
         {scenery === 'mountains' && (
@@ -730,26 +716,26 @@ export default function WindowScene() {
         {/* --- SCENERY 4: COHESIVE AESTHETIC LO-FI CITY SKYLINE --- */}
         {scenery === 'city' && (() => {
           const isNightOrDark =
-            weather === 'night' || weather === 'sunset' || weather === 'rainy' || weather === 'thunder';
+            timeOfDay === 'night' || timeOfDay === 'sunset' || weather === 'rainy' || weather === 'thunder';
 
           const cityDistantColor =
-            weather === 'night' || weather === 'thunder'
+            timeOfDay === 'night' || weather === 'thunder'
               ? '#1b1d2c'
-              : weather === 'sunset'
+              : timeOfDay === 'sunset'
               ? '#523a4f'
               : '#4a4e69';
 
           const cityMidColor =
-            weather === 'night' || weather === 'thunder'
+            timeOfDay === 'night' || weather === 'thunder'
               ? '#141622'
-              : weather === 'sunset'
+              : timeOfDay === 'sunset'
               ? '#382e3f'
               : '#3d354b';
 
           const cityForeColor =
-            weather === 'night' || weather === 'thunder'
+            timeOfDay === 'night' || weather === 'thunder'
               ? '#0d0f18'
-              : weather === 'sunset'
+              : timeOfDay === 'sunset'
               ? '#23202d'
               : '#2b3040';
 
@@ -1184,7 +1170,7 @@ export default function WindowScene() {
         {/* Glass Reflections */}
         <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-white/[0.08]" />
 
-        {weather === 'night' && (
+        {timeOfDay === 'night' && (
           <div className="absolute bottom-28 right-32 w-64 h-64 rounded-full bg-gradient-to-tr from-amber-500/15 via-amber-300/5 to-transparent blur-2xl pointer-events-none animate-pulse" style={{ animationDuration: '6s' }}>
             <div className="absolute bottom-6 right-12 w-16 h-28 border-t-2 border-amber-300/20 rounded-t-full opacity-40 blur-xs" />
           </div>
@@ -1316,10 +1302,10 @@ export default function WindowScene() {
           <div className="absolute bottom-0 left-1/2 -translate-x-1/2 select-none">
             <div className="relative flex items-center justify-center">
               {/* Ambient sunbeam glow */}
-              {weather === 'sunny' && (
+              {timeOfDay === 'day' && weather === 'clear' && (
                 <div className="absolute -inset-6 bg-amber-300/35 rounded-full blur-xl pointer-events-none" />
               )}
-              {weather === 'sunset' && (
+              {timeOfDay === 'sunset' && weather === 'clear' && (
                 <div className="absolute -inset-6 bg-orange-400/30 rounded-full blur-xl pointer-events-none" />
               )}
 

@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { useStore } from '@nanostores/preact';
 import {
+  $timeOfDay,
   $weather,
   $scenery,
   $sceneProps,
@@ -10,6 +11,7 @@ import {
   $isSettingsOpen,
   $zenMode,
   $isFullscreen,
+  setTimeOfDay,
   setWeather,
   setScenery,
   toggleSceneProp,
@@ -18,6 +20,7 @@ import {
   setPomodoroConfig,
   resetWidgetPositions,
   toggleFullscreen,
+  type TimeOfDayType,
   type WeatherType,
   type SceneryType,
   type SoundChannels,
@@ -33,6 +36,7 @@ import {
   CloudLightning,
   Snowflake,
   Moon,
+  Sparkles,
   Volume2,
   TreePine,
   Bird,
@@ -48,6 +52,7 @@ import {
 } from 'lucide-preact';
 
 export default function SettingsDrawer() {
+  const timeOfDay = useStore($timeOfDay);
   const weather = useStore($weather);
   const scenery = useStore($scenery);
   const sceneProps = useStore($sceneProps);
@@ -83,14 +88,18 @@ export default function SettingsDrawer() {
     { type: 'city', label: 'City', icon: Building2 },
   ];
 
-  const weatherOptions: Array<{ type: WeatherType; label: string; icon: typeof Sun }> = [
-    { type: 'sunny', label: 'Sunny', icon: Sun },
+  const timeOfDayOptions: Array<{ type: TimeOfDayType; label: string; icon: typeof Sun }> = [
+    { type: 'day', label: 'Day', icon: Sun },
     { type: 'sunset', label: 'Sunset', icon: Sunset },
+    { type: 'night', label: 'Night', icon: Moon },
+  ];
+
+  const weatherOptions: Array<{ type: WeatherType; label: string; icon: typeof Sparkles }> = [
+    { type: 'clear', label: 'Clear', icon: Sparkles },
     { type: 'cloudy', label: 'Cloudy', icon: Cloud },
     { type: 'rainy', label: 'Rainy', icon: CloudRain },
     { type: 'thunder', label: 'Thunder', icon: CloudLightning },
     { type: 'snowy', label: 'Snowy', icon: Snowflake },
-    { type: 'night', label: 'Night', icon: Moon },
   ];
 
   const soundRows: Array<{
@@ -183,7 +192,34 @@ export default function SettingsDrawer() {
                 </div>
               </div>
 
-              {/* 1. WEATHER (2-column grid of icon + single-word chips) */}
+              {/* 1. TIME OF DAY (3-column pill row) */}
+              <div className="space-y-3">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+                  Time of Day
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  {timeOfDayOptions.map((item) => {
+                    const isActive = timeOfDay === item.type;
+                    const IconComp = item.icon;
+                    return (
+                      <button
+                        key={item.type}
+                        onClick={() => setTimeOfDay(item.type)}
+                        className={`flex items-center justify-center gap-2 px-2.5 py-2.5 rounded-[16px] text-xs font-medium transition-all border ${
+                          isActive
+                            ? 'bg-[#2D313A] border-amber-400/80 text-amber-200 shadow-sm'
+                            : 'bg-[#25272E] border-white/5 text-slate-300 hover:bg-[#2B2E37] hover:text-white'
+                        }`}
+                      >
+                        <IconComp size={15} className={isActive ? 'text-amber-400' : 'text-slate-400'} />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. WEATHER (Compact icon chips) */}
               <div className="space-y-3">
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
                   Weather
