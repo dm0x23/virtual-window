@@ -43,6 +43,8 @@ import {
   RotateCcw,
   Maximize2,
   Minimize2,
+  Bell,
+  BellOff,
 } from 'lucide-preact';
 
 export default function SettingsDrawer() {
@@ -58,6 +60,21 @@ export default function SettingsDrawer() {
 
   const [focusInput, setFocusInput] = useState(pomodoroConfig.focusMinutes);
   const [breakInput, setBreakInput] = useState(pomodoroConfig.breakMinutes);
+
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'default';
+  });
+
+  const handleRequestNotif = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    try {
+      const perm = await Notification.requestPermission();
+      setNotifPermission(perm);
+    } catch {}
+  };
 
   const sceneryOptions: Array<{ type: SceneryType; label: string; icon: typeof Trees }> = [
     { type: 'countryside', label: 'Countryside', icon: Trees },
@@ -343,6 +360,46 @@ export default function SettingsDrawer() {
                       className="w-full bg-[#1C1D22] border border-white/10 rounded-[12px] px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-400"
                     />
                   </div>
+                </div>
+
+                {/* Desktop Alerts Row */}
+                <div className="flex items-center justify-between p-3 rounded-[16px] bg-[#25272E] border border-white/5">
+                  <div className="flex items-center gap-2.5">
+                    {notifPermission === 'denied' ? (
+                      <BellOff size={16} className="text-rose-400" />
+                    ) : (
+                      <Bell size={16} className={notifPermission === 'granted' ? 'text-amber-300' : 'text-slate-400'} />
+                    )}
+                    <div>
+                      <span className="text-xs font-medium text-white block">Desktop Alerts</span>
+                      <span className="text-[11px] text-slate-400">
+                        {notifPermission === 'granted'
+                          ? 'Active (alerts at 00:00)'
+                          : notifPermission === 'denied'
+                          ? 'Blocked in browser'
+                          : 'Notify on session complete'}
+                      </span>
+                    </div>
+                  </div>
+                  {notifPermission === 'default' && (
+                    <button
+                      type="button"
+                      onClick={handleRequestNotif}
+                      className="px-3 py-1.5 rounded-[10px] bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/30 text-xs font-medium transition-colors cursor-pointer"
+                    >
+                      Enable
+                    </button>
+                  )}
+                  {notifPermission === 'granted' && (
+                    <span className="text-[11px] text-emerald-400 font-medium px-2 py-0.5 rounded-full bg-emerald-400/10 border border-emerald-400/20">
+                      Active
+                    </span>
+                  )}
+                  {notifPermission === 'denied' && (
+                    <span className="text-[11px] text-rose-400 font-medium px-2 py-0.5 rounded-full bg-rose-400/10 border border-rose-400/20">
+                      Blocked
+                    </span>
+                  )}
                 </div>
               </div>
 
